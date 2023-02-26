@@ -1,0 +1,136 @@
+sau khi tạo project api xong
+Ví dụ tên project api là: MicoserviceAPI_Docker
+
+thêm file docker cho api đó: Dockerfile
+
+FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
+WORKDIR /src
+COPY MicoserviceAPI_Docker.csproj .
+RUN dotnet restore
+COPY . .
+RUN dotnet publish -c release -o /app
+
+
+FROM mcr.microsoft.com/dotnet/aspnet:5.0 
+WORKDIR /app
+COPY --from=build /app .
+ENTRYPOINT ["dotnet", "MicoserviceAPI_Docker.dll"]
+
+save mở terminal(cmd) của project chạy lệnh: kể cả dấu chấm cuối
+
+docker build -t micoserviceapi_docker .
+
+sau khi build xong thì mở docker desktop kiểm tra coi có image docker chưa:
+
+có thì chạy tiếp lệnh:
+
+docker run -it -d --rm -p 3000:80 --name mymicroservicecontainer micoserviceapi_docker
+
+nó sẽ lắng nghe ở cổng 3000. Có thể gõ url để kiểm tra api của project từ cổng 3000 http://localhost:3000/api...
+
+tạo project api thứ 2 làm các bước tương tự trên:
+đổi tên ở câu lệnh build
+tên, cổng 400 ở câu lệnh run
+
+sau khi có 2 api với 2 cổng khác nhau ta sẽ bắt đầu Tạo 1 project api khác để làm cổng chính gọi ts các api kia:
+sau khi tạo project api gateway
+thêm package Ocelot
+
+tạo file json: Ocelot.json và viết code cấu hình lắng nghe các project api đã khởi tạo trước đó:
+{
+  "ReRoutes": [
+    {
+      "DownstreamPathTemplate": "/api/Customers",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 3000
+        }
+      ],
+      "UpstreamPathTemplate": "/apigateway/CustomerService",
+      "UpstreamHttpMethod": [ "GET", "PUT", "POST" ]
+    },
+    {
+      "DownstreamPathTemplate": "/api/Products",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 4000
+        }
+      ],
+      "UpstreamPathTemplate": "/apigateway/ProductService",
+      "UpstreamHttpMethod": [ "GET", "PUT", "POST" ]
+    }
+  ]
+}
+
+trong program ở ver .net 5:đăng kí ocelot
+public class Program
+    {
+        public static void Main(string[] args)
+        {
+            CreateHostBuilder(args).Build().Run();
+        }
+
+        public static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+                .ConfigureWebHostDefaults(webBuilder =>
+                {
+                    webBuilder.UseStartup<Startup>();
+                }).ConfigureAppConfiguration((HostingContext, config) =>
+                {
+                    config.SetBasePath(HostingContext.HostingEnvironment.ContentRootPath)
+                    .AddJsonFile("Ocelot.json", optional: false, reloadOnChange: true);
+                });
+    }
+
+ở file startup ver .net 5: đăng ký dịch vụ ocelot
+
+// This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+
+            services.AddControllers();
+            //add
+            services.AddOcelot();
+
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "APIGateway", Version = "v1" });
+            });
+        }
+
+
+sử dụng service cho ocelot
+// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "APIGateway v1"));
+            }
+
+            app.UseHttpsRedirection();
+
+            app.UseRouting();
+
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
+
+            //add
+            app.UseOcelot().Wait();
+        }
+
+đã xong hiện tại có thể chạy với project gateway với các url end point sẽ map với các project api trước trong file cấu hình Ocelot.json
+
+
+
+
